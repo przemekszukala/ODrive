@@ -49,6 +49,7 @@ AXIS_STATE_ENCODER_HALL_PHASE_CALIBRATION = 13
 ENCODER_MODE_INCREMENTAL                 = 0
 ENCODER_MODE_HALL                        = 1
 ENCODER_MODE_SINCOS                      = 2
+ENCODER_MODE_SPI_ABS_CUSTOM              = 261
 ENCODER_MODE_SPI_ABS_CUI                 = 256
 ENCODER_MODE_SPI_ABS_AMS                 = 257
 ENCODER_MODE_SPI_ABS_AEAT                = 258

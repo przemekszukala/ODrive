@@ -1374,6 +1374,9 @@ valuetypes:
       INCREMENTAL:
       HALL:
       SINCOS:
+      SPI_ABS_CUSTOM:
+        value: 0x105
+        doc: Custom Mitsubishi
       SPI_ABS_CUI:
         value: 0x100
         doc: compatible with CUI AMT23xx
