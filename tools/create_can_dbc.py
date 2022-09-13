@@ -137,9 +137,10 @@ getSensorlessEstMsg = cantools.database.can.Message(
 # 0x016 - Reboot ODrive
 rebootMsg = cantools.database.can.Message(0x016, "Reboot", 0, [])
 
-# 0x017 - Get vbus Voltage
-vbusVoltage = cantools.database.can.Signal("Vbus_Voltage", 0, 32, is_float=True)
-getVbusVMsg = cantools.database.can.Message(0x017, "Get_Vbus_Voltage", 8, [vbusVoltage])
+# 0x017 - Get vbus Voltage and Current
+busVoltage = cantools.database.can.Signal("Bus_Voltage", 0, 32, is_float=True)
+busCurrent = cantools.database.can.Signal("Bus_Current", 32, 32, is_float=True)
+getVbusVCMsg = cantools.database.can.Message(0x017, "Get_Bus_Voltage_Current", 8, [busVoltage, busCurrent])
 
 # 0x018 - Clear Errors
 clearErrorsMsg = cantools.database.can.Message(0x018, "Clear_Errors", 0, [])
@@ -156,6 +157,16 @@ setPosGainMsg = cantools.database.can.Message(0x01A, "Set_Pos_Gain", 8, [posGain
 velGain = cantools.database.can.Signal("Vel_Gain", 0, 32, is_float=True)
 velIntGain = cantools.database.can.Signal("Vel_Integrator_Gain", 32, 32, is_float=True)
 setVelGainsMsg = cantools.database.can.Message(0x01B, "Set_Vel_gains", 8, [velGain, velIntGain])
+
+# 0x01C - Get ADC Voltage
+adcVoltage = cantools.database.can.Signal("ADC_Voltage", 0, 32, is_float=True)
+getADCVoltageMsg = cantools.database.can.Message(0x01C, "Get_ADC_Voltage", 8, [adcVoltage])
+
+# 0x01D - Controller Error
+controllerError = cantools.database.can.Signal("Controller_Error", 0, 32)
+controllerErrorMsg = cantools.database.can.Message(
+    0x01D, "Get_Controller_Error", 8, [controllerError]
+)
 
 db = cantools.database.can.Database(
     [
@@ -180,11 +191,13 @@ db = cantools.database.can.Database(
         getIqMsg,
         getSensorlessEstMsg,
         rebootMsg,
-        getVbusVMsg,
+        getVbusVCMsg,
         clearErrorsMsg,
         setLinearCountMsg,
         setPosGainMsg,
-        setVelGainsMsg
+        setVelGainsMsg,
+        getADCVoltageMsg,
+        controllerErrorMsg,
     ]
 )
 

@@ -135,9 +135,9 @@ void CANSimple::do_command(Axis& axis, const can_Message_t& msg) {
         case MSG_RESET_ODRIVE:
             NVIC_SystemReset();
             break;
-        case MSG_GET_VBUS_VOLTAGE:
+        case MSG_GET_BUS_VOLTAGE_CURRENT:
             if (msg.rtr || msg.len == 0)
-                get_vbus_voltage_callback(axis);
+                get_bus_voltage_current_callback(axis);
             break;
         case MSG_CLEAR_ERRORS:
             clear_errors_callback(axis, msg);
@@ -150,6 +150,12 @@ void CANSimple::do_command(Axis& axis, const can_Message_t& msg) {
             break;
         case MSG_SET_VEL_GAINS:
             set_vel_gains_callback(axis, msg);
+            break;
+        case MSG_GET_ADC_VOLTAGE:
+            get_adc_voltage_callback(axis, msg);
+            break;
+        case MSG_GET_CONTROLLER_ERROR:
+            get_controller_error_callback(axis);
             break;
         default:
             break;
@@ -200,12 +206,24 @@ bool CANSimple::get_sensorless_error_callback(const Axis& axis) {
     return canbus_->send_message(txmsg);
 }
 
+bool CANSimple::get_controller_error_callback(const Axis& axis) {
+    can_Message_t txmsg;
+    txmsg.id = axis.config_.can.node_id << NUM_CMD_ID_BITS;
+    txmsg.id += MSG_GET_CONTROLLER_ERROR;  // heartbeat ID
+    txmsg.isExt = axis.config_.can.is_extended;
+    txmsg.len = 8;
+
+    can_setSignal(txmsg, axis.controller_.error_, 0, 32, true);
+
+    return canbus_->send_message(txmsg);
+}
+
 void CANSimple::set_axis_nodeid_callback(Axis& axis, const can_Message_t& msg) {
     axis.config_.can.node_id = can_getSignal<uint32_t>(msg, 0, 32, true);
 }
 
 void CANSimple::set_axis_requested_state_callback(Axis& axis, const can_Message_t& msg) {
-    axis.requested_state_ = static_cast<Axis::AxisState>(can_getSignal<int32_t>(msg, 0, 16, true));
+    axis.requested_state_ = static_cast<Axis::AxisState>(can_getSignal<int32_t>(msg, 0, 32, true));
 }
 
 void CANSimple::set_axis_startup_config_callback(Axis& axis, const can_Message_t& msg) {
@@ -253,7 +271,7 @@ bool CANSimple::get_encoder_count_callback(const Axis& axis) {
 }
 
 void CANSimple::set_input_pos_callback(Axis& axis, const can_Message_t& msg) {
-    axis.controller_.input_pos_ = can_getSignal<float>(msg, 0, 32, true);
+    axis.controller_.set_input_pos_and_steps(can_getSignal<float>(msg, 0, 32, true));
     axis.controller_.input_vel_ = can_getSignal<int16_t>(msg, 32, 16, true, 0.001f, 0);
     axis.controller_.input_torque_ = can_getSignal<int16_t>(msg, 48, 16, true, 0.001f, 0);
     axis.controller_.input_pos_updated();
@@ -269,8 +287,10 @@ void CANSimple::set_input_torque_callback(Axis& axis, const can_Message_t& msg) 
 }
 
 void CANSimple::set_controller_modes_callback(Axis& axis, const can_Message_t& msg) {
-    axis.controller_.config_.control_mode = static_cast<Controller::ControlMode>(can_getSignal<int32_t>(msg, 0, 32, true));
+    Controller::ControlMode const mode = static_cast<Controller::ControlMode>(can_getSignal<int32_t>(msg, 0, 32, true));
+    axis.controller_.config_.control_mode = static_cast<Controller::ControlMode>(mode);
     axis.controller_.config_.input_mode = static_cast<Controller::InputMode>(can_getSignal<int32_t>(msg, 32, 32, true));
+    axis.controller_.control_mode_updated();
 }
 
 void CANSimple::set_limits_callback(Axis& axis, const can_Message_t& msg) {
@@ -319,28 +339,47 @@ bool CANSimple::get_iq_callback(const Axis& axis) {
     if (!Idq_setpoint.has_value()) {
         Idq_setpoint = {0.0f, 0.0f};
     }
-
-    static_assert(sizeof(float) == sizeof(Idq_setpoint->first));
+    
     static_assert(sizeof(float) == sizeof(Idq_setpoint->second));
-    can_setSignal<float>(txmsg, Idq_setpoint->first, 0, 32, true);
-    can_setSignal<float>(txmsg, Idq_setpoint->second, 32, 32, true);
+    static_assert(sizeof(float) == sizeof(axis.motor_.current_control_.Iq_measured_));
+    can_setSignal<float>(txmsg, Idq_setpoint->second, 0, 32, true);
+    can_setSignal<float>(txmsg, axis.motor_.current_control_.Iq_measured_, 32, 32, true);
 
     return canbus_->send_message(txmsg);
 }
 
-bool CANSimple::get_vbus_voltage_callback(const Axis& axis) {
+bool CANSimple::get_bus_voltage_current_callback(const Axis& axis) {
     can_Message_t txmsg;
 
     txmsg.id = axis.config_.can.node_id << NUM_CMD_ID_BITS;
-    txmsg.id += MSG_GET_VBUS_VOLTAGE;
+    txmsg.id += MSG_GET_BUS_VOLTAGE_CURRENT;
     txmsg.isExt = axis.config_.can.is_extended;
     txmsg.len = 8;
 
-    uint32_t floatBytes;
-    static_assert(sizeof(vbus_voltage) == sizeof(floatBytes));
+    static_assert(sizeof(float) == sizeof(vbus_voltage));
+    static_assert(sizeof(float) == sizeof(ibus_));
     can_setSignal<float>(txmsg, vbus_voltage, 0, 32, true);
+    can_setSignal<float>(txmsg, ibus_, 32, 32, true);
 
     return canbus_->send_message(txmsg);
+}
+
+bool CANSimple::get_adc_voltage_callback(const Axis& axis, const can_Message_t& msg) {
+    can_Message_t txmsg;
+
+    txmsg.id = axis.config_.can.node_id << NUM_CMD_ID_BITS;
+    txmsg.id += MSG_GET_ADC_VOLTAGE;
+    txmsg.isExt = axis.config_.can.is_extended;
+    txmsg.len = 8;
+
+    auto gpio_num = can_getSignal<uint8_t>(msg, 0, 8, true);
+    if (gpio_num < GPIO_COUNT) {
+        auto voltage = get_adc_voltage(get_gpio(gpio_num));
+        can_setSignal<float>(txmsg, voltage, 0, 32, true);
+        return canbus_->send_message(txmsg);
+    } else {
+        return false;
+    }
 }
 
 void CANSimple::clear_errors_callback(Axis& axis, const can_Message_t& msg) {
