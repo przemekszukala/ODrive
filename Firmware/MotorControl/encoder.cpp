@@ -52,32 +52,11 @@ void Encoder::setup() {
         .CRCCalculation = SPI_CRCCALCULATION_DISABLE,
         .CRCPolynomial = 10,
     };
-        spi_task_2.config = {
-        .Mode = SPI_MODE_MASTER,
-        .Direction = SPI_DIRECTION_2LINES,
-        .DataSize = SPI_DATASIZE_16BIT,
-        .CLKPolarity = (mode_ == MODE_SPI_ABS_AEAT || mode_ == MODE_SPI_ABS_MA732) ? SPI_POLARITY_HIGH : SPI_POLARITY_LOW,
-        .CLKPhase = SPI_PHASE_2EDGE,
-        .NSS = SPI_NSS_SOFT,
-        .BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32,
-        .FirstBit = SPI_FIRSTBIT_MSB,
-        .TIMode = SPI_TIMODE_DISABLE,
-        .CRCCalculation = SPI_CRCCALCULATION_DISABLE,
-        .CRCPolynomial = 10,
-    };
-        spi_task_3.config = {
-        .Mode = SPI_MODE_MASTER,
-        .Direction = SPI_DIRECTION_2LINES,
-        .DataSize = SPI_DATASIZE_16BIT,
-        .CLKPolarity = (mode_ == MODE_SPI_ABS_AEAT || mode_ == MODE_SPI_ABS_MA732) ? SPI_POLARITY_HIGH : SPI_POLARITY_LOW,
-        .CLKPhase = SPI_PHASE_2EDGE,
-        .NSS = SPI_NSS_SOFT,
-        .BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32,
-        .FirstBit = SPI_FIRSTBIT_MSB,
-        .TIMode = SPI_TIMODE_DISABLE,
-        .CRCCalculation = SPI_CRCCALCULATION_DISABLE,
-        .CRCPolynomial = 10,
-    };
+
+    if (mode_ == MODE_SPI_ABS_MA732) {
+        abs_spi_dma_tx_[0] = 0x0000;
+    }
+
     if(mode_ & MODE_FLAG_ABS){
         abs_spi_cs_pin_init();
 
@@ -85,56 +64,6 @@ void Encoder::setup() {
             axis_->controller_.anticogging_valid_ = true;
         }
     }
-
-    if (mode_ == MODE_SPI_ABS_CUSTOM) {
-        uint8_t divisor  = 1;
-        uint8_t temp_lcr = 0x80;
-        write_register(0x03, temp_lcr); //LCR
-        write_register(0x00, divisor); //DLL
-        write_register(0x01, 0x00); //DLH
-        write_register(0x03, 0x03); //LCR
-        write_register(0x0F, 0x10); //EFCR enable 485 controll
-        write_register(0x02, 0x06); //FCR reset TXFIFO, reset RXFIFO, non FIFO mode
-        write_register(0x02, 0x01); //FCR  enable FIFO mode
-
-
-
-    }
-    if (mode_ == MODE_SPI_ABS_MA732) {
-        abs_spi_dma_tx_[0] = 0x0000;
-    }
-
-    
-}
-
-void Encoder::write_register(uint8_t reg_addr, uint8_t val) {
-    uint8_t addr_to_send = reg_addr<<3;
-    abs_spi_dma_tx_[0] = addr_to_send << 8 | val;
-    abs_spi_dma_tx_[1] = 0xffff;
-    spi_start_transaction();
-    
-}
-
-
-void Encoder::read_data() {
-    uint8_t addr_to_send;
-    
-    addr_to_send = 0x02<<3;
-    abs_spi_dma_tx_[0] = addr_to_send << 8 | 0x07;
-    abs_spi_dma_tx_[1] = 0xffff;
-
-
-    addr_to_send = 0x00<<3;
-    abs_spi_dma_tx_2[0] = addr_to_send << 8 | 0x32;
-    abs_spi_dma_tx_2[1] = 0xffff;
-
-    addr_to_send = 0x80|(0x00<<3);
-    abs_spi_dma_tx_3[0] = addr_to_send << 8 | 0xff;
-    abs_spi_dma_tx_3[1] = 0xffff;
-    
-
-    abs_mts_spi_start_transaction();
-
 }
 
 void Encoder::set_error(Error error) {
@@ -558,11 +487,7 @@ void Encoder::sample_now() {
             sincos_sample_s_ = get_adc_relative_voltage(get_gpio(config_.sincos_gpio_pin_sin)) - 0.5f;
             sincos_sample_c_ = get_adc_relative_voltage(get_gpio(config_.sincos_gpio_pin_cos)) - 0.5f;
         } break;
-        case MODE_SPI_ABS_CUSTOM:{
-              //  write_register(0x02, 0x07); //FCR reset TXFIFO, reset RXFIFO, FIFO mode
-            // write_register(0x00, 0x32); //Send to encoder
-            read_data();
-        }break;
+
         case MODE_SPI_ABS_AMS:
         case MODE_SPI_ABS_CUI:
         case MODE_SPI_ABS_AEAT:
@@ -599,82 +524,13 @@ void Encoder::decode_hall_samples() {
                 | (read_sampled_gpio(hallC_gpio_) ? 4 : 0);
 }
 
-void Encoder::spi_start_transaction() {
-        if (mode_ & MODE_FLAG_ABS){
-spi_task_.config = {
-        .Mode = SPI_MODE_MASTER,
-        .Direction = SPI_DIRECTION_2LINES,
-        .DataSize = SPI_DATASIZE_16BIT,
-        .CLKPolarity = (mode_ == MODE_SPI_ABS_AEAT || mode_ == MODE_SPI_ABS_MA732) ? SPI_POLARITY_HIGH : SPI_POLARITY_LOW,
-        .CLKPhase = SPI_PHASE_2EDGE,
-        .NSS = SPI_NSS_SOFT,
-        .BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32,
-        .FirstBit = SPI_FIRSTBIT_MSB,
-        .TIMode = SPI_TIMODE_DISABLE,
-        .CRCCalculation = SPI_CRCCALCULATION_DISABLE,
-        .CRCPolynomial = 10,
-    };
-    spi_arbiter_->transfer(spi_task_.config, abs_spi_cs_gpio_, (uint8_t*)abs_spi_dma_tx_, nullptr, 1, 1000);
-        }
-}
-
-bool Encoder::abs_mts_spi_start_transaction() {
-
-
-    if (mode_ & MODE_FLAG_ABS){
-
-        if (Stm32SpiArbiter::acquire_task(&spi_task_) ) {
-            
-            
-
-            spi_task_.ncs_gpio = abs_spi_cs_gpio_;
-            spi_task_.tx_buf = (uint8_t*)abs_spi_dma_tx_;
-            spi_task_.rx_buf = (uint8_t*)abs_spi_dma_rx_write;
-            spi_task_.length = 2;
-            spi_task_.on_complete = [](void* ctx, bool success) { };
-            spi_task_.on_complete_ctx = this;
-            spi_task_.next = nullptr;
-            
-            spi_arbiter_->transfer_async(&spi_task_);
-
-            Stm32SpiArbiter::acquire_task(&spi_task_2);
-            
-            spi_task_2.ncs_gpio = abs_spi_cs_gpio_;
-            spi_task_2.tx_buf = (uint8_t*)abs_spi_dma_tx_2;
-            spi_task_2.rx_buf = (uint8_t*)abs_spi_dma_rx_write;
-            spi_task_2.length = 2;
-            spi_task_2.on_complete = [](void* ctx, bool success) { };
-            spi_task_2.on_complete_ctx = this;
-            spi_task_2.next = nullptr;
-            spi_arbiter_->transfer_async(&spi_task_2);
-
-
-            Stm32SpiArbiter::acquire_task(&spi_task_3);
-            
-            spi_task_3.ncs_gpio = abs_spi_cs_gpio_;
-            spi_task_3.tx_buf = (uint8_t*)abs_spi_dma_tx_3;
-            spi_task_3.rx_buf = (uint8_t*)abs_spi_dma_rx_;
-            spi_task_3.length = 3;
-            spi_task_3.on_complete = [](void* ctx, bool success) { ((Encoder*)ctx)->abs_spi_cb(success);  };
-            spi_task_3.on_complete_ctx = this;
-            spi_task_3.next = nullptr;
-            spi_arbiter_->transfer_async(&spi_task_3);
-
-        } else {
-            return false;
-        }
-    }
-    return true;
-}
-
-
 bool Encoder::abs_spi_start_transaction() {
     if (mode_ & MODE_FLAG_ABS){
         if (Stm32SpiArbiter::acquire_task(&spi_task_)) {
             spi_task_.ncs_gpio = abs_spi_cs_gpio_;
             spi_task_.tx_buf = (uint8_t*)abs_spi_dma_tx_;
             spi_task_.rx_buf = (uint8_t*)abs_spi_dma_rx_;
-            spi_task_.length = 3;
+            spi_task_.length = 1;
             spi_task_.on_complete = [](void* ctx, bool success) { ((Encoder*)ctx)->abs_spi_cb(success); };
             spi_task_.on_complete_ctx = this;
             spi_task_.next = nullptr;
@@ -701,29 +557,9 @@ uint8_t cui_parity(uint16_t v) {
     v ^= v >> 2;
     return ~v & 3;
 }
-uint8_t mlx_parity(uint16_t a, uint16_t b) {
-
-    return ((a & 0x00ff) & (b & 0x00ff));
-}
-
-uint8_t mts_parity(uint16_t a, uint16_t b, uint16_t c) {
-    uint8_t data[6];
-    
-    data[0] = a >> 8;
-    data[1] = a & 0xff;
-    data[2] = b >> 8;
-    data[3] = b & 0xff;
-    data[4] = c >> 8;
-    data[5] = c & 0xff;
-    bool correct = false; 
-    if(data[0] == data[3] && data[1] == data[4] && data[2] == data[5]) correct = true;
-
-
-    return correct;
-}
 
 void Encoder::abs_spi_cb(bool success) {
-    uint32_t pos;
+    uint16_t pos;
 
     if (!success) {
         goto done;
@@ -752,24 +588,7 @@ void Encoder::abs_spi_cb(bool success) {
             uint16_t rawVal = abs_spi_dma_rx_[0];
             pos = (rawVal >> 2) & 0x3fff;
         } break;
-        case MODE_SPI_ABS_CUSTOM: {
-            //uint32_t rawVal = abs_spi_dma_rx_[1] << 16 |  abs_spi_dma_rx_[2];
-            // if (  ((abs_spi_dma_rx_[1] & 0x00ff) & (abs_spi_dma_rx_[2] & 0x00ff))  != 0) {
-            //     goto done;
-            // }
-            ////if (mts_parity(abs_spi_dma_rx_[0], abs_spi_dma_rx_[1], abs_spi_dma_rx_[2]) == false) {
-            ////     goto done;
-            //// }
-           // pos= rawVal & 0x3fff;
-            // pos = (((abs_spi_dma_rx_[2] << 16 |  abs_spi_dma_rx_[1]) ) >> 8 & 0xffff);
-            //// pos = (((abs_spi_dma_rx_[0]) << 8) | (abs_spi_dma_rx_[1] >> 8));
 
-            pos =  (((abs_spi_dma_rx_[1]>>8) & 0x80) + ((abs_spi_dma_rx_[1] & 0xFF) << 8) + ((abs_spi_dma_rx_[2]>>8) << 16)) >> 7; // 17 bit
-
-          
-
-
-        } break;
         case MODE_SPI_ABS_MA732: {
             uint16_t rawVal = abs_spi_dma_rx_[0];
             pos = (rawVal >> 2) & 0x3fff;
@@ -789,7 +608,6 @@ void Encoder::abs_spi_cb(bool success) {
 
 done:
     Stm32SpiArbiter::release_task(&spi_task_);
-
 }
 
 void Encoder::abs_spi_cs_pin_init(){
@@ -913,12 +731,11 @@ bool Encoder::update() {
         case MODE_SPI_ABS_AMS:
         case MODE_SPI_ABS_CUI: 
         case MODE_SPI_ABS_AEAT:
-        case MODE_SPI_ABS_CUSTOM:
         case MODE_SPI_ABS_MA732: {
             if (abs_spi_pos_updated_ == false) {
                 // Low pass filter the error
                 spi_error_rate_ += current_meas_period * (1.0f - spi_error_rate_);
-                if (spi_error_rate_ > 1.0f) {
+                if (spi_error_rate_ > 0.005f) {
                     set_error(ERROR_ABS_SPI_COM_FAIL);
                     return false;
                 }
